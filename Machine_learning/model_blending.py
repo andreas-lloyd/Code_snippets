@@ -33,6 +33,7 @@ Have to think about:
 
     How about giving the final classification method as an argument to the base classifier - instead of the predict method (but then also being able to give in predict method), this would allow for CV
 '''
+
 import pandas as pd
 import numpy as np
 import pickle
@@ -50,7 +51,7 @@ class blender(BaseEstimator, ClassifierMixin):
     Class that is used to blend various models together and predict on some test set
     '''
 
-    def __init__(self, model_list = [{'log_reg' : LogisticRegression()}], n_folds = 3, scorer = accuracy_score, get_argmax = True, save_loc = None, seed = 100):
+    def __init__(self, model_list = [{'log_reg' : LogisticRegression()}], n_folds = 3, scorer = accuracy_score, get_argmax = True, predict_function = 'max', save_loc = None, seed = 100):
         '''
         What we initially provide when we declare it
         param: model_list will be a list of structure [{"Model_1" : model_1, "Model_2" : model_2, ...], {"Model_1" : model_1, "Model_2" : model_2, ...} ...] where each new list is a new level - and each level is a dictionary
@@ -60,7 +61,9 @@ class blender(BaseEstimator, ClassifierMixin):
         param: save_loc will be, if provided, the location to save CSV and pickls 
         '''
         assert type(model_list[0]) == dict, 'Have not detected a list of dicts from model_list - must wrap it up!'
-        
+        assert predict_function in ['max', 'mean'] or callable(predict_function), 'The argument "predict_function" must be a callable or one of the default strings'
+
+        self.predict_function = predict_function
         self.model_list = model_list
         self.n_folds = n_folds
         self.scorer = scorer
@@ -116,7 +119,7 @@ class blender(BaseEstimator, ClassifierMixin):
 
             # Then start training each model
             for model_num, model in enumerate(level):
-                print('Entering model number {} for level number {}'.format(model_num + 1, level_num + 1))
+                #print('Entering model number {} for level number {}'.format(model_num + 1, level_num + 1))
                 # If the level is 0 and we have a list then we have to get the right data set (do it like this to avoid repeated assignment)
                 if level_num == 0 and self.train_is_dic:
                     X = self.train_data[model]
@@ -151,7 +154,7 @@ class blender(BaseEstimator, ClassifierMixin):
                 level_results = pd.concat([level_results, model_results], axis = 1)
                 
                 # Get the accuracy of our predictions for monitoring
-                print('Model {} for level {} has an average score of {} with a std of {}'.format(model_num, level_num, np.mean(fold_scores), np.std(fold_scores)))
+                #print('Model {} for level {} has an average score of {} with a std of {}'.format(model_num, level_num, np.mean(fold_scores), np.std(fold_scores)))
 
                 # After having trained all the levels - need to train on the full data - we only fit on the data and nothing else (in the predict method we will .predict() for each model)
                 getattr(self, model_key).fit(X, self.train_y)
@@ -209,7 +212,7 @@ class blender(BaseEstimator, ClassifierMixin):
 
             # Then start fitting using each model
             for model_num, model in enumerate(level):
-                print('Entering model number {} for level number {}'.format(model_num + 1, level_num + 1))
+                #print('Entering model number {} for level number {}'.format(model_num + 1, level_num + 1))
                 
                 # Similarly - if we trained on a list then we need to get the first set of test data
                 if level_num == 0 and self.train_is_dic:
@@ -237,7 +240,7 @@ class blender(BaseEstimator, ClassifierMixin):
         # Then finally return the test prediction dictionary so the user can do what they want with it
         return self.last_level_predictions
     
-    def predict(self, test_data, predict_function = 'max'):
+    def predict(self, test_data):
         '''
         Predict method that will first call predict proba and then get some basic arg max or some other function on the data to return our final classification
         Can also take a prediction function that will combine the results as desired - must be of form f(P) where P is the probability matrix for a given class, 
@@ -245,19 +248,14 @@ class blender(BaseEstimator, ClassifierMixin):
         Can also give string arguments "mean" or "max" for the straight mean or argmax (defaults to argmax)
         '''
 
-        assert predict_function in ['max', 'mean'] or callable(predict_function), 'The argument "predict_function" must be a callable or one of the default strings'
-
-        # Save what we have used
-        self.predict_function = predict_function
-
         # First get our probabilities
-        print('Getting the prediction probabilities...')
+        #print('Getting the prediction probabilities...')
         prediction_probabilities = self.predict_proba(test_data)
 
         transformed_probabilities = pd.DataFrame({'Class_{}'.format(class_num + 1) : [0]*prediction_probabilities.shape[0] for class_num in range(self.num_classes)})
 
         # Then we have to combine the probabilities in some way, taking into account how many classes we have
-        print('Getting the final classification...')
+        #print('Getting the final classification...')
         for class_num in range(self.num_classes):
             # First we get the list of columns we want to look at
             model_columns = ['Model_{}_class_{}'.format(model_num + 1, class_num + 1) for model_num in range(self.num_models_last_level)]
